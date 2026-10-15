@@ -8,3 +8,9 @@ __pycache__/
 
 dataset
 engine
+
+net.bin
+nnue_weights.pth
+
+best.pth
+last.pth

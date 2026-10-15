@@ -106,6 +106,8 @@ def test_loop(dataloader, model, loss_fn, device):
     test_loss /= num_batches
     print(f"Avg loss: {test_loss:>8f} \n")
 
+    return test_loss
+
 
 def q16(a: np.ndarray, scale: int) -> np.ndarray:
     q = np.round(a * scale)
@@ -140,27 +142,40 @@ def main():
         config = tomllib.load(f)
 
     learning_rate = 1e-3
-    batch_size = 4096
-    epochs = 15
+    batch_size = 16384
+    max_epochs = 50
 
     data = load_data(config)
     n_val = len(data) // 100  # hold out 1%
 
-    train_loader = DataLoader(NnueDataset(data[:-n_val]), batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(NnueDataset(data[-n_val:]), batch_size=batch_size)
+    train_loader = DataLoader(NnueDataset(data[:-n_val]), batch_size=batch_size, shuffle=True, num_workers=20, persistent_workers=True, pin_memory=True, prefetch_factor=4)
+    val_loader = DataLoader(NnueDataset(data[-n_val:]), batch_size=batch_size, num_workers=8)
 
     model = NnueNet().to(device)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    for t in range(epochs):
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.3, patience=1)
+    best, bad, patience = float("inf"), 0, 5
+
+    for t in range(max_epochs):
         print(f"Epoch {t + 1}\n-------------------------------")
         train_loop(train_loader, model, loss_fn, optimizer, device)
-        test_loop(val_loader, model, loss_fn, device)
-    print("Done!")
+        val_loss = test_loop(val_loader, model, loss_fn, device)
+        scheduler.step(val_loss)
+        print(f"lr: {optimizer.param_groups[0]['lr']:.2e}")
+        torch.save(model.state_dict(), "last.pth")
 
-    torch.save(model.state_dict(), "nnue_weights.pth")
-    export_net(model, "net.bin")
+        if val_loss < best:
+            best, bad = val_loss, 0
+            torch.save(model.state_dict(), "best.pth")
+            export_net(model, "net.bin")
+        else:
+            bad += 1
+            if bad >= patience:
+                break
+
+    print("Done!")
 
 
 if __name__ == "__main__":
