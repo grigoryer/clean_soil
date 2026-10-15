@@ -4,11 +4,12 @@ checkpoints = 1000
 workers = 6
 
 [engine]
-path = "./red_bean"
+path = "./data/red_bean"
 nodes = 5000
+hash = 16
 
 [openings]
-folder = "./openings/"
+folder = "./data/openings/"
 path = "opening_book.pgn"
 random_plies = [2, 8]
 
@@ -16,7 +17,7 @@ random_plies = [2, 8]
 win_cp = 2000
 
 [export]
-path = "./results/"
+path = "./data/dataset/"
 name = "redbean"
 generation = 1
 extension = ".bin"

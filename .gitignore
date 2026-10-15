@@ -3,4 +3,8 @@
 generator/results/
 red_bean
 
-venv
+.venv/
+__pycache__/
+
+dataset
+engine

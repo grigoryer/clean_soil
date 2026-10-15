@@ -13,8 +13,6 @@ from chess import Board
 from chess.engine import SimpleEngine
 
 
-
-
 def load_map(path) -> list:
     openings = []
     with open(path, 'r', encoding='utf8') as book:
@@ -23,6 +21,7 @@ def load_map(path) -> list:
 
         
     print("Done with openings!")
+    print(f"Opening Size: {len(openings)}")
     return openings
 
 
@@ -73,8 +72,10 @@ def data_encoder(board: Board, score: int, result: int) -> bytes:
     stm = 0 if board.turn == chess.WHITE else 1
     return RECORD.pack(occ, packed, stm, score, result)
 
+
 def encode_result(record: bytearray, result: int) -> None:
     record[RESULT_OFFSET] = result
+
 
 
 def data_decoder(rec: bytes):
@@ -92,7 +93,7 @@ def data_decoder(rec: bytes):
         board.set_piece_at(sq, chess.Piece((n & 7) + 1, color))
 
     board.turn = chess.WHITE if stm == 0 else chess.BLACK
-    return board, score, result
+    return board.fen(), score  #,result
 
 
 
@@ -104,7 +105,10 @@ def run_worker(worker_id: int, config, openings: list, export_path: str) -> int:
     step = max(1, target // config["generation"]["checkpoints"])
     next_checkpoint = step
 
+    time.sleep(worker_id * 3)   # stagger startup: worker 0 starts now, worker 1 after 3s, ...
+
     engine = chess.engine.SimpleEngine.popen_uci(config["engine"]["path"])
+    engine.configure({"Hash" : config["engine"]["hash"]})
     board = chess.Board()
     training_data = []
     total = 0
@@ -150,7 +154,19 @@ def play_game(board : Board, engine : SimpleEngine, openings : list, config) -> 
 
         # check if move is data gen worthy
         # quit early, skip long positions update game state.
-        white_score = result.info["score"].pov(chess.WHITE).score()
+        score = result.info.get("score")
+        if score is None:
+            # Engines may return a move without an evaluation. Play it, but
+            # do not save a training sample without a score.
+            board.push(result.move)
+            continue
+
+        white_pov = score.pov(chess.WHITE)
+        if white_pov.is_mate():
+            game_result = 0 if white_pov.score(mate_score=32767) > 0 else 1
+            break
+
+        white_score = white_pov.score()
 
         if (abs(white_score) > config["adjudication"]["win_cp"]):
             if white_score > config["adjudication"]["win_cp"]:
@@ -192,7 +208,7 @@ def short_count(n: int) -> str:
 
 
 if __name__ == "__main__":
-    with open("./config.toml", "rb") as f:
+    with open("./config/gen_config.toml", "rb") as f:
         config = tomllib.load(f)
 
     os.makedirs(config["export"]["path"], exist_ok=True)
